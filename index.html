@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dice Game Scoreboard</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#1f4d3a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Dice Score">
+<style>
+:root{--bg:#1f4d3a;--panel:#f6f1e4;--ink:#1c1c1a;--muted:#6b6a60;--line:#d8d2bf;--accent:#c8372d;--gold:#e0a82e;--bar:#e6dfca;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10261d;--panel:#222a25;--ink:#f1ede0;--muted:#a3a595;--line:#394239;--bar:#2e3830;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#10261d;--panel:#222a25;--ink:#f1ede0;--muted:#a3a595;--line:#394239;--bar:#2e3830;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;line-height:1.4}
+main{max-width:720px;margin:0 auto;padding:12px}
+.panel{background:var(--panel);border-radius:14px;padding:14px;margin-bottom:12px}
+#board{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+h1{font-size:1.1rem;margin:0 0 8px;font-weight:800}
+.status{font-size:.95rem;margin:0 0 10px;color:var(--muted)}
+.status b{color:var(--ink)}
+.row{display:grid;grid-template-columns:1.6em 1fr auto;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--line)}
+.rank{font-weight:800;color:var(--muted)}
+.name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag{font-size:.75rem;font-weight:600;background:var(--gold);color:#1c1c1a;border-radius:99px;padding:1px 8px;margin-left:6px}
+.tag.off{background:var(--bar);color:var(--muted)}
+.total{font-weight:800;font-size:1.25rem;font-variant-numeric:tabular-nums}
+.togo{grid-column:2 / 4;display:flex;align-items:center;gap:8px;font-size:.8rem;color:var(--muted)}
+.track{flex:1;height:8px;background:var(--bar);border-radius:99px;overflow:hidden}
+.fill{height:100%;background:var(--accent);border-radius:99px}
+.row.lead .fill{background:var(--gold)}
+.win{background:var(--gold);color:#1c1c1a;border-radius:10px;padding:10px 12px;font-weight:800;margin-bottom:10px}
+form.add{display:flex;gap:8px}
+input[type=text],input[type=number]{flex:1;min-width:0;font:inherit;padding:10px;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--ink)}
+button{font:inherit;font-weight:600;padding:10px 14px;border:0;border-radius:10px;background:var(--accent);color:#fff;cursor:pointer}
+button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+button.small{padding:4px 10px;font-size:.8rem}
+:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+.pcard h2{font-size:1rem;margin:0 0 8px;display:flex;justify-content:space-between;align-items:center}
+.entry{display:flex;gap:8px}
+.hist{margin:8px 0 0;font-size:.85rem;color:var(--muted);word-break:break-word}
+.bar2{display:flex;gap:8px;flex-wrap:wrap}
+.empty{color:var(--muted);margin:0}
+</style>
+</head>
+<body>
+<main>
+  <section class="panel" id="board" aria-live="polite">
+    <h1>Scoreboard · first to 10,000</h1>
+    <div id="boardBody"><p class="empty">Add players below to start the game.</p></div>
+  </section>
+
+  <section class="panel">
+    <form class="add" id="addForm">
+      <input type="text" id="newName" placeholder="Player name" maxlength="30" aria-label="Player name" autocomplete="off">
+      <button type="submit">Add player</button>
+    </form>
+  </section>
+
+  <div id="cards"></div>
+
+  <section class="panel bar2">
+    <button class="ghost" id="newGame">New game (keep players)</button>
+    <button class="ghost" id="clearAll">Clear everything</button>
+  </section>
+</main>
+<script>
+(function(){
+  var TARGET = 10000, KEY = 'dice-scoreboard-v1';
+  var players = [];
+  try { var s = localStorage.getItem(KEY); if (s) players = JSON.parse(s) || []; } catch (e) { players = []; }
+  if (!Array.isArray(players)) players = [];
+
+  function save(){ try { localStorage.setItem(KEY, JSON.stringify(players)); } catch (e) {} }
+  var MIN = 650;
+  function onBoard(p){ return p.scores.some(function(s){return s >= MIN;}); }
+  function total(p){
+    var started = false, sum = 0;
+    p.scores.forEach(function(s){ if (!started && s < MIN) return; started = true; sum += s; });
+    return sum;
+  }
+  function fmt(n){ return n.toLocaleString('en-US'); }
+  function el(tag, cls, text){ var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+  function renderBoard(){
+    var box = document.getElementById('boardBody');
+    box.textContent = '';
+    if (!players.length){ box.appendChild(el('p','empty','Add players below to start the game.')); return; }
+    var sorted = players.map(function(p){return {p:p,t:total(p)};}).sort(function(a,b){return b.t-a.t;});
+    var top = sorted[0];
+    var winners = sorted.filter(function(x){return x.t >= TARGET;});
+    if (winners.length){
+      box.appendChild(el('div','win', winners[0].p.name + ' wins with ' + fmt(winners[0].t) + ' points!'));
+    } else if (top.t > 0){
+      var tied = sorted.filter(function(x){return x.t === top.t;}).length > 1;
+      var st = el('p','status');
+      var b = el('b', null, tied ? 'Tied for the lead: ' + sorted.filter(function(x){return x.t===top.t;}).map(function(x){return x.p.name;}).join(', ') : top.p.name);
+      st.appendChild(b);
+      st.appendChild(document.createTextNode(tied ? '' : ' is in the lead'));
+      st.appendChild(document.createTextNode(' — ' + fmt(TARGET - top.t) + ' points to go.'));
+      box.appendChild(st);
+    } else {
+      box.appendChild(el('p','status','No one is on the board yet. Score ' + fmt(MIN) + ' or more in one turn to start counting.'));
+    }
+    sorted.forEach(function(x,i){
+      var lead = top.t > 0 && x.t === top.t;
+      var r = el('div','row' + (lead ? ' lead' : ''));
+      r.appendChild(el('div','rank', String(i+1)));
+      var n = el('div','name', x.p.name);
+      if (x.t >= TARGET) n.appendChild(el('span','tag','Winner'));
+      else if (lead) n.appendChild(el('span','tag','Leading'));
+      else if (!onBoard(x.p)) n.appendChild(el('span','tag off','Not on board'));
+      r.appendChild(n);
+      r.appendChild(el('div','total', fmt(x.t)));
+      var g = el('div','togo');
+      var tr = el('div','track'), f = el('div','fill');
+      f.style.width = Math.min(100, Math.max(0, x.t / TARGET * 100)) + '%';
+      tr.appendChild(f); g.appendChild(tr);
+      g.appendChild(el('span',null, x.t >= TARGET ? 'Reached ' + fmt(TARGET) : (!onBoard(x.p) ? 'Needs ' + fmt(MIN) + ' to start' : fmt(TARGET - x.t) + ' to go')));
+      r.appendChild(g);
+      box.appendChild(r);
+    });
+  }
+
+  function renderCards(){
+    var c = document.getElementById('cards');
+    c.textContent = '';
+    players.forEach(function(p, idx){
+      var card = el('section','panel pcard');
+      var h = el('h2');
+      h.appendChild(el('span',null,p.name));
+      var rm = el('button','ghost small','Remove');
+      rm.addEventListener('click', function(){
+        if (confirm('Remove ' + p.name + '?')){ players.splice(idx,1); update(); }
+      });
+      h.appendChild(rm);
+      card.appendChild(h);
+      var f = el('form','entry');
+      var inp = document.createElement('input');
+      inp.type = 'number'; inp.inputMode = 'numeric'; inp.step = '50'; inp.placeholder = 'Points rolled';
+      inp.setAttribute('aria-label','Points rolled for ' + p.name);
+      f.appendChild(inp);
+      f.appendChild(el('button',null,'Add score'));
+      var bust = el('button','ghost','Bust (0)'); bust.type = 'button';
+      bust.addEventListener('click', function(){ p.scores.push(0); update(); });
+      f.appendChild(bust);
+      var undo = el('button','ghost','Undo'); undo.type = 'button';
+      undo.addEventListener('click', function(){ p.scores.pop(); update(); });
+      f.appendChild(undo);
+      f.addEventListener('submit', function(e){
+        e.preventDefault();
+        var v = parseInt(inp.value, 10);
+        if (isNaN(v)) { inp.focus(); return; }
+        p.scores.push(v); update();
+        var again = document.querySelectorAll('#cards input')[idx];
+        if (again) again.focus();
+      });
+      card.appendChild(f);
+      var started = false;
+      var parts = p.scores.map(function(s){
+        if (s === 0) return '0 (bust)';
+        if (!started && s < MIN) return s + ' (not counted)';
+        started = true; return String(s);
+      });
+      var hist = el('p','hist', p.scores.length ? 'Turns: ' + parts.join(', ') : 'No scores yet.');
+      card.appendChild(hist);
+      c.appendChild(card);
+    });
+  }
+
+  function update(){ save(); renderBoard(); renderCards(); }
+
+  document.getElementById('addForm').addEventListener('submit', function(e){
+    e.preventDefault();
+    var i = document.getElementById('newName');
+    var name = i.value.trim();
+    if (!name) return;
+    players.push({name:name, scores:[]});
+    i.value = ''; update();
+  });
+  document.getElementById('newGame').addEventListener('click', function(){
+    if (confirm('Reset all scores to zero?')){ players.forEach(function(p){p.scores = [];}); update(); }
+  });
+  document.getElementById('clearAll').addEventListener('click', function(){
+    if (confirm('Remove all players and scores?')){ players = []; update(); }
+  });
+  update();
+})();
+</script>
+<script>
+if ('serviceWorker' in navigator) { window.addEventListener('load', function(){ navigator.serviceWorker.register('sw.js').catch(function(){}); }); }
+</script>
+</body>
+</html>
