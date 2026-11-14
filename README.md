@@ -1,0 +1,2 @@
+# DiceScoreboard
+Dice scoreboard counter
